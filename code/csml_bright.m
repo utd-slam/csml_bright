@@ -16,6 +16,8 @@ end
 InitializePsychSound
 
 clearvars; clc; 
+
+TESTING = 0;
 codeStart = GetSecs(); 
 AudioDevice = PsychPortAudio('GetDevices'); 
 
@@ -60,16 +62,11 @@ t.eventTime  = t.presTime + t.epiTime;
 %     t.eventTime * t.events + ...  % Each event
 %     t.eventTime;                  % After last acquisition
 
-%t.rxnWindow = 3.000;  % 3 seconds
-%t.jitWindow = 1.000;  % 1 second, see notes below. 
-    % For this experiment, the first second of the silent window will not
-    % have stimuli presented. To code for this, I add an additional 1s
-    % to the jitterKey. So, the jitter window ranges from 1s to 2s.
-
 %% Preallocating timing variables
 
 AbsEvStart    = cell(t.numBlocks, t.maxRuns); 
 AbsStimStart  = cell(t.numBlocks, t.maxRuns); AbsStimStart = cellfun((@(x) nan(1, t.stimPerBlock)), AbsStimStart, 'UniformOutput', 0); 
+AbsStimEnd    = cell(t.numBlocks, t.maxRuns); AbsStimEnd   = cellfun((@(x) nan(1, t.stimPerBlock)), AbsStimEnd, 'UniformOutput', 0); 
 AbsRxnEnd     = cell(t.numBlocks, t.maxRuns); AbsRxnEnd    = cellfun((@(x) nan(1, t.stimPerBlock)), AbsRxnEnd, 'UniformOutput', 0); 
 AbsEvEnd      = cell(t.numBlocks, t.maxRuns); 
 ansKey        = cell(t.numBlocks, t.maxRuns); 
@@ -79,6 +76,7 @@ stimEnd       = cell(t.numBlocks, t.maxRuns); stimEnd   = cellfun((@(x) nan(1, t
 eventEnd      = cell(t.numBlocks, t.maxRuns); 
 eventStartKey = cell(t.numBlocks, t.maxRuns); 
 stimStartKey  = cell(t.numBlocks, t.maxRuns); stimStartKey  = cellfun((@(x) nan(1, t.stimPerBlock)), stimStartKey, 'UniformOutput', 0); 
+stimEndKey    = cell(t.numBlocks, t.maxRuns); stimEndKey    = cellfun((@(x) nan(1, t.stimPerBlock)), stimEndKey, 'UniformOutput', 0); 
 rxnEndKey     = cell(t.numBlocks, t.maxRuns); rxnEndKey     = cellfun((@(x) nan(1, t.stimPerBlock)), rxnEndKey, 'UniformOutput', 0); 
 eventEndKey   = cell(t.numBlocks, t.maxRuns); 
 
@@ -86,16 +84,19 @@ recStart      = cell(t.numBlocks, t.maxRuns);
 recStartKey   = cell(t.numBlocks, t.maxRuns);
 stimDuration  = cell(t.numBlocks, t.maxRuns); 
 
-respTime = cell(t.numBlocks, t.maxRuns); respTime = cellfun((@(x) cell(1, t.stimPerBlock)), respTime, 'UniformOutput', 0); 
-respKey  = cell(t.numBlocks, t.maxRuns); respKey  = cellfun((@(x) cell(1, t.stimPerBlock)), respKey, 'UniformOutput', 0); 
+respTime_present = cell(t.numBlocks, t.maxRuns); respTime_present = cellfun((@(x) cell(1, t.stimPerBlock)), respTime_present, 'UniformOutput', 0); 
+respTime_fixate  = cell(t.numBlocks, t.maxRuns); respTime_fixate  = cellfun((@(x) cell(1, t.stimPerBlock)), respTime_fixate, 'UniformOutput', 0); 
+respKey_present  = cell(t.numBlocks, t.maxRuns); respKey_present  = cellfun((@(x) cell(1, t.stimPerBlock)), respKey_present, 'UniformOutput', 0); 
+respKey_fixate   = cell(t.numBlocks, t.maxRuns); respKey_fixate   = cellfun((@(x) cell(1, t.stimPerBlock)), respKey_fixate, 'UniformOutput', 0); 
 
 blockStart    = NaN(t.numBlocks, t.maxRuns); 
 jitterKey     = NaN(t.numBlocks, t.maxRuns); 
 blockEnd      = NaN(t.numBlocks, t.maxRuns); 
 restStart     = NaN(t.numBlocks, t.maxRuns); 
-restDuration  = NaN(t.numBlocks, t.maxRuns); % how long between blocks
+restDuration  = NaN(t.numBlocks + 1, t.maxRuns); % how long between blocks, includes pause after first 5%
 restEnd       = NaN(t.numBlocks, t.maxRuns); 
 blockStartKey = NaN(t.numBlocks, t.maxRuns); 
+AbsBlockEnd   = NaN(t.numBlocks, t.maxRuns); 
 blockEndKey   = NaN(t.numBlocks, t.maxRuns); 
 stimtrainStartKey = NaN(t.numBlocks, t.maxRuns); 
 stimtrainEndKey   = NaN(t.numBlocks, t.maxRuns); 
@@ -108,11 +109,6 @@ dir_exp = pwd;
 dir_stim = fullfile(pwd, 'stim'); 
 dir_results = fullfile(pwd, 'results'); 
 dir_docs = fullfile(pwd, 'docs');
-
-% dir_stim_bright_sound = fullfile(dir_stim, 'bright_sound');
-% dir_stim_bright_colors = fullfile(dir_stim, 'bright_colors');
-% dir_stim_dark_sound = fullfile(dir_stim, 'dark_sound');
-% dir_stim_dark_colors = fullfile(dir_stim, 'dark_colors');
 
 %% Load stimuli
 folders_stim = dir(dir_stim); folders_stim = folders_stim(3:end);
@@ -185,6 +181,10 @@ end
 
 %% Prepare PTB
 % PTB
+if TESTING
+    error('TESTING!') %#ok<UNRCH>
+end
+
 [wPtr, rect] = Screen('OpenWindow', 1, 185);
 DrawFormattedText(wPtr, 'Please wait, preparing experiment...');
 Screen('Flip', wPtr);
@@ -210,10 +210,10 @@ try
         Screen('Flip', wPtr); 
 
         % Prepare timing keys
-        restDuration(:, runs) = Shuffle(14:18); 
+        restDuration(:, runs) = Shuffle(14:19); % also includes first rest after exp. begins
         jitterKey(:, runs) = rand(1, 5);
         
-        blockStartKey(1, runs) = scan.TR; 
+        blockStartKey(1, runs) = restDuration(1, runs); 
         
         for ii = 1:5 % blocks
             if ii ~= 1
@@ -223,9 +223,11 @@ try
             stimtrainStartKey(ii, runs) = blockStartKey(ii, runs) + jitterKey(ii, runs); 
             
             stimStartKey{ii, runs}(1) = stimtrainStartKey(ii, runs); 
+            stimEndKey{ii, runs}(1)   = stimStartKey{ii, runs}(1) + t.presTime; 
             for jj = 1:5 % event
                 if jj ~= 1
                     stimStartKey{ii, runs}(jj) = rxnEndKey{ii, runs}(jj-1); 
+                    stimEndKey{ii, runs}(jj) = stimStartKey{ii, runs}(jj) + t.presTime; 
                 end
                 
                 rxnEndKey{ii, runs}(jj) = stimStartKey{ii, runs}(jj) + t.presTime + t.fixTime;
@@ -233,7 +235,7 @@ try
         
             stimtrainEndKey(ii, runs) = stimtrainStartKey(ii, runs) + t.blockDuration; 
             restStart(ii, runs) = stimtrainEndKey(ii, runs); 
-            restEnd(ii, runs) = restStart(ii, runs) + restDuration(ii, runs); 
+            restEnd(ii, runs) = restStart(ii, runs) + restDuration(ii+1, runs); 
             blockEndKey(ii, runs) = restEnd(ii, runs); 
         end
 
@@ -251,37 +253,41 @@ try
 
         % Generate absolute time keys
         for ii = 1:5 % blocks
-%             AbsEvStart(:, runs)   = firstPulse(runs) + eventStartKey(:,runs); 
             AbsStimStart{ii, runs} = firstPulse(runs) + stimStartKey{ii, runs}; 
-            AbsRxnEnd{ii, runs}   = firstPulse(runs) + rxnEndKey{ii, runs}; 
-%             AbsRxnEnd(:, runs)    = firstPulse(runs) + rxnEndKey(:,runs); 
-%             AbsEvEnd(:, runs)     = firstPulse(runs) + eventEndKey(:,runs); 
+            AbsStimEnd{ii, runs}   = firstPulse(runs) + stimEndKey{ii, runs}; 
+            AbsRxnEnd{ii, runs}    = firstPulse(runs) + rxnEndKey{ii, runs}; 
+            AbsBlockEnd(ii, runs)  = firstPulse(runs) + blockEndKey(ii, runs); 
         end
         
-        WaitTill(firstPulse(runs) + scan.TR); 
+        WaitTill(firstPulse(runs) + restDuration(1, runs)); 
 
         %% Present stimuli
         for blks = 1:t.numBlocks 
             blockStart(runs, blks) = GetSecs(); 
             
             if any(blocks(blks, runs) == [1 3]) || any(oddball(blks, runs) == [1 3]) % if color
-                for evts = 1:t.events
-    %                     eventStart(evts, runs) = GetSecs(); 
+                for evts = 1:t.stimPerBlock
+                    if any(oddball(blks, runs) == [1 3])
+                        thisstim = stim{oddball(blks, runs), events{runs, blocks(blks, runs)}(evts)}; 
+                    elseif any(blocks(blks, runs) == [1 3])
                         thisstim = stim{blocks(blks, runs), events{runs, blocks(blks, runs)}(evts)}; 
+                    end
+                    
+                    thisstimstart = AbsStimStart{blks, runs}(evts);
+                    thisstimend   = AbsStimEnd{blks, runs}(evts) - 0.01;
+                    thisfixstart  = AbsStimEnd{blks, runs}(evts); 
+                    thisrxnend    = AbsRxnEnd{blks, runs}(evts);
 
-                        Screen('DrawTexture', wPtr, text{ii}, [], [], 0);
-    %                     WaitTill(AbsStimStart(evts, runs)-0.1); 
+                    Screen('DrawTexture', wPtr, thisstim);
+                    stimStart{blks, runs}(evts) = Screen('Flip', wPtr, thisstimstart); 
+                    Screen('DrawLines', wPtr, crossCoords, 2, 0, [centerX, centerY]); % draw cross early
+                    RTBox('Clear'); 
+                    [respTime_present{blks, runs}{evts}, respKey_present{blks, runs}{evts}] = RTBox(thisstimend); 
 
-    %                     stimStart(evts, runs) = PsychPortAudio('Start', pahandle, 1, AbsStimStart(evts, runs), 1);
-                        Screen('Flip', wPtr); % check if we can make timing more accurate!
-    %                     WaitTill(AbsStimEnd(evts, runs)); 
-    %                     stimEnd(evts, runs) = GetSecs; 
-    %                     RTBox('Clear'); 
+                    Screen('Flip', wPtr, thisfixstart); 
+                    RTBox('Clear'); 
+                    [respTime_fixate{blks, runs}{evts}, respKey_fixate{blks, runs}{evts}] = RTBox(thisrxnend); 
 
-    %                     [respTime{evts, runs}, respKey{evts, runs}] = RTBox(AbsRxnEnd(evts, runs)); 
-
-    %                     WaitTill(AbsEvEnd(evts, runs));    
-    %                     eventEnd(evts, runs) = GetSecs(); 
                 end
             
             elseif any(blocks(blks, runs) == [2 4]) || any(oddball(blks, runs) == [2 4]) % if sound
@@ -292,13 +298,16 @@ try
                         thisstim = stim{blocks(blks, runs), events{runs, blocks(blks, runs)}(evts)}; 
                     end
                     
-                    thisstart = AbsStimStart{blks, runs}(evts);
-                    thisend = AbsRxnEnd{blks, runs}(evts);
+                    thisstimstart = AbsStimStart{blks, runs}(evts);
+                    thisstimend   = AbsStimEnd{blks, runs}(evts) - 0.01;
+                    thisrxnend    = AbsRxnEnd{blks, runs}(evts);
                     
                     PsychPortAudio('FillBuffer', pahandle, thisstim);
                     RTBox('Clear'); 
-                    stimStart{blks, runs}(evts) = PsychPortAudio('Start', pahandle, 1, thisstart, 1);
-                    [respTime{blks, runs}{evts}, respKey{blks, runs}{evts}] = RTBox(thisend); 
+                    stimStart{blks, runs}(evts) = PsychPortAudio('Start', pahandle, 1, thisstimstart, 1);
+                    [respTime_present{blks, runs}{evts}, respKey_present{blks, runs}{evts}] = RTBox(thisstimend); 
+                    
+                    [respTime_fixate{blks, runs}{evts}, respKey_fixate{blks, runs}{evts}] = RTBox(thisrxnend); 
                     
                 end
                 
@@ -306,8 +315,11 @@ try
             
         end
         
+        WaitSecs()
+        
+        %% End of run
         WaitSecs(t.eventTime); 
-        runEnd(runs) = GetSecs(); 
+        runEnd(runs) = GetSecs();  %#ok<SAGROW>
 
         if runs ~= subj.lastRun
             DrawFormattedText(wPtr, 'End of run. Great job!', 'center', 'center'); 
@@ -318,34 +330,20 @@ try
     end
     
 catch err
+    %% Error exception
     sca; 
     runEnd(runs) = GetSecs();  %#ok<NASGU>
-    cd(dir_funcs)
-    disp('Dumping data...')
-    OutputData_fst
-    cd(dir_scripts)
+%     cd(dir_funcs)
+%     disp('Dumping data...')
+%     OutputData_fst
+%     cd(dir_scripts)
     PsychPortAudio('Close'); 
     disp('Done!')
     rethrow(err)
 end
 
-
-
-
-%% Execute code
-
-
-
-
-
-%% End of block
-
-
-
-
-
 %% End of experiment
 
-
+sca
 
 
